@@ -247,7 +247,7 @@ private fun EditBar(onAdd: (WidgetType) -> Unit, onReset: () -> Unit, onDone: ()
         Spacer(Modifier.width(8.dp))
         Label("edit home", color = Fg)
         Spacer(Modifier.weight(1f))
-        Chip("reset", onReset)
+        Chip("reset", onClick = onReset)
         Spacer(Modifier.width(6.dp))
         Box {
             Chip("+ add") { menu = true }
@@ -258,12 +258,12 @@ private fun EditBar(onAdd: (WidgetType) -> Unit, onReset: () -> Unit, onDone: ()
             }
         }
         Spacer(Modifier.width(6.dp))
-        Chip("done", onDone, filled = true)
+        Chip("done", filled = true, onClick = onDone)
     }
 }
 
 @Composable
-private fun Chip(text: String, onClick: () -> Unit, filled: Boolean = false) {
+private fun Chip(text: String, filled: Boolean = false, onClick: () -> Unit) {
     Text(
         text.uppercase(Locale.ROOT),
         color = if (filled) Color.Black else Fg,
