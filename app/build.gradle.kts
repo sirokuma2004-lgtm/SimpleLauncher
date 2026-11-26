@@ -16,7 +16,13 @@ android {
         versionName = "0.1"
     }
     buildTypes {
-        release { isMinifyEnabled = false }
+        // 普段使いはこちら。デバッグ用の処理が外れ、R8 で最適化されるので動きが軽い
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -34,4 +40,5 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 }

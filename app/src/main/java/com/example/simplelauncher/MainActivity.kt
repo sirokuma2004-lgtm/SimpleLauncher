@@ -5,6 +5,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -36,7 +40,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // アプリの追加・削除を反映するため、戻ってくるたびに読み直す
-        apps.value = repo.loadApps()
+        lifecycleScope.launch {
+            val list = withContext(Dispatchers.IO) { repo.loadApps() }
+            apps.value = list
+            // スクロール中にアイコンを作らずに済むよう、先に用意しておく
+            withContext(Dispatchers.IO) { repo.preloadIcons(list) }
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

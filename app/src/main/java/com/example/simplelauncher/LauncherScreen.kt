@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,11 +58,14 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
@@ -331,6 +336,28 @@ private fun AppDrawer(
     }
     LaunchedEffect(Unit) { focus.requestFocus() }
 
+    // 一覧の一番上でさらに下へ引いたら閉じる。
+    // スクロールと奪い合わないよう、スクロールが使い切れなかった分だけを数える。
+    val gridState = rememberLazyGridState()
+    val close by rememberUpdatedState(onClose)
+    val closeOnPull = remember {
+        object : NestedScrollConnection {
+            var pulled = 0f
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    pulled = if (available.y > 0f) pulled + available.y else 0f
+                }
+                return Offset.Zero
+            }
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                val atTop = !gridState.canScrollBackward
+                if (pulled > 150f || (atTop && available.y > 3000f)) close()
+                pulled = 0f
+                return Velocity.Zero
+            }
+        }
+    }
+
     // 一致が1件に絞れたら、そのまま起動する
     LaunchedEffect(filtered, query) {
         if (query.isNotBlank() && filtered.size == 1) {
@@ -394,16 +421,10 @@ private fun AppDrawer(
             Spacer(Modifier.height(16.dp))
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
+                state = gridState,
                 modifier = Modifier
                     .weight(1f)
-                    .pointerInput(Unit) {
-                        var total = 0f
-                        detectVerticalDragGestures(
-                            onDragStart = { total = 0f },
-                            onDragEnd = { if (total > 250f) onClose() },
-                            onVerticalDrag = { _, dy -> total += dy },
-                        )
-                    },
+                    .nestedScroll(closeOnPull),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(filtered, key = { it.key }) { app ->
@@ -422,8 +443,6 @@ private fun AppDrawer(
         }
     }
 }
-
-private val Grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -452,7 +471,7 @@ private fun AppCell(
                     contentAlignment = Alignment.Center,
                 ) {
                     icon?.let {
-                        Image(it, contentDescription = app.label, colorFilter = Grayscale, modifier = Modifier.size(34.dp))
+                        Image(it, contentDescription = app.label, modifier = Modifier.size(34.dp))
                     }
                 }
                 if (isFavorite) Box(Modifier.size(8.dp).background(Accent, CircleShape))
