@@ -15,13 +15,31 @@ android {
         versionCode = 1
         versionName = "0.1"
     }
+    // 固定の署名鍵。CI では GitHub の Secrets から渡される。
+    // 鍵がない環境（手元のビルドなど）では、デバッグ用の鍵で署名する。
+    val keystorePath = System.getenv("SIGNING_KEYSTORE")
+    val keystorePassword = System.getenv("SIGNING_PASSWORD")
+    val hasReleaseKey = !keystorePath.isNullOrBlank() && file(keystorePath).exists() &&
+        !keystorePassword.isNullOrBlank()
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = keystorePassword
+                keyAlias = "simplelauncher"
+                keyPassword = keystorePassword
+            }
+        }
+    }
+
     buildTypes {
         // 普段使いはこちら。デバッグ用の処理が外れ、R8 で最適化されるので動きが軽い
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
         }
     }
     compileOptions {
