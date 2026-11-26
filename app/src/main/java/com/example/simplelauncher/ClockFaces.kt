@@ -49,10 +49,9 @@ fun ClockFace(style: ClockStyle, now: Calendar, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier) {
         val w = maxWidth
         val h = maxHeight
-        val blink = now.get(Calendar.SECOND) % 2 == 1
         when (style) {
             ClockStyle.DOT -> Column {
-                DotText("${now.hh()}:${now.mm()}", pitch = minOf(w / 25, (h - 26.dp) / 7), dimColon = blink)
+                DotText("${now.hh()}:${now.mm()}", pitch = minOf(w / 25, (h - 26.dp) / 7))
                 Spacer(Modifier.height(10.dp))
                 Label(now.dateLine())
             }
@@ -61,7 +60,7 @@ fun ClockFace(style: ClockStyle, now: Calendar, modifier: Modifier = Modifier) {
                 val p = minOf(h / 15, w * 0.6f / 11)
                 Column(verticalArrangement = Arrangement.spacedBy(p)) {
                     DotText(now.hh(), pitch = p)
-                    DotText(now.mm(), pitch = p, color = if (blink) Fg else Fg.copy(alpha = 0.85f))
+                    DotText(now.mm(), pitch = p)
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -84,7 +83,7 @@ fun ClockFace(style: ClockStyle, now: Calendar, modifier: Modifier = Modifier) {
 
             ClockStyle.SEGMENT -> Column {
                 val digitH = minOf(h - 26.dp, w / 2.9f)
-                SegmentClock(now, digitH, blink)
+                SegmentClock(now, digitH)
                 Spacer(Modifier.height(10.dp))
                 Label(now.dateLine())
             }
@@ -133,7 +132,7 @@ fun ClockFace(style: ClockStyle, now: Calendar, modifier: Modifier = Modifier) {
 private val SEG = intArrayOf(0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F)
 
 @Composable
-private fun SegmentClock(now: Calendar, digitH: Dp, dimColon: Boolean) {
+private fun SegmentClock(now: Calendar, digitH: Dp) {
     val digits = (now.hh() + now.mm()).map { it - '0' }
     val dw = digitH * 0.5f
     val gap = dw * 0.3f
@@ -147,7 +146,7 @@ private fun SegmentClock(now: Calendar, digitH: Dp, dimColon: Boolean) {
             drawDigit(SEG[d], x, wPx, size.height, t)
             x += wPx + g
             if (i == 1) {
-                val c = if (dimColon) Color.White.copy(alpha = 0.15f) else Accent
+                val c = Accent
                 val cx = x + colonW.toPx() / 2 - g / 2
                 drawCircle(c, t * 0.7f, Offset(cx, size.height * 0.33f))
                 drawCircle(c, t * 0.7f, Offset(cx, size.height * 0.67f))
@@ -194,7 +193,7 @@ private fun RingClock(now: Calendar, modifier: Modifier) {
         val mDeg = m * 6.0
         for (k in 1..5) drawCircle(Fg, dot * 1.3f, at(hDeg, r * 0.5f * k / 5))
         for (k in 1..8) drawCircle(Fg, dot, at(mDeg, r * 0.8f * k / 8))
-        drawCircle(Accent, dot * 1.6f, at(now.get(Calendar.SECOND) * 6.0, r))
+        drawCircle(Accent, dot * 1.6f, at(0.0, r)) // 12時の目印
         drawCircle(Fg, dot * 2.2f, c)
     }
 }

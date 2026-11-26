@@ -1,8 +1,5 @@
 package com.example.simplelauncher
 
-import android.content.Intent
-import android.provider.AlarmClock
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -14,10 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,16 +27,19 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,57 +51,50 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.Velocity
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import java.util.Calendar
-import java.util.Locale
 
 @Composable
 fun LauncherScreen(
-    apps: List<AppEntry>,
-    favoriteKeys: List<String>,
+    data: LauncherData,
     homePressed: Int,
     repo: AppRepository,
-    onLaunch: (AppEntry) -> Unit,
-    onAppInfo: (AppEntry) -> Unit,
-    onToggleFavorite: (AppEntry) -> Unit,
+    store: HomeStore,
+    actions: LauncherActions,
 ) {
     var drawerOpen by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf<AppEntry?>(null) }
     LaunchedEffect(homePressed) { drawerOpen = false }
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
-
-    val byKey = remember(apps) { apps.associateBy { it.key } }
-    val favorites = favoriteKeys.mapNotNull { byKey[it] }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         HalftoneBackground(Modifier.fillMaxSize())
         HomePane(
-            favorites = favorites,
+            data = data,
             homePressed = homePressed,
-            onLaunch = onLaunch,
-            onLongPress = onToggleFavorite,
+            repo = repo,
+            store = store,
+            actions = actions,
+            onRename = { renaming = it },
             onOpenDrawer = { drawerOpen = true },
         )
         AnimatedVisibility(
@@ -113,226 +103,97 @@ fun LauncherScreen(
             exit = fadeOut() + scaleOut(targetScale = 0.96f),
         ) {
             AppDrawer(
-                apps = apps,
-                favoriteKeys = favoriteKeys,
+                data = data,
                 repo = repo,
-                onLaunch = { drawerOpen = false; onLaunch(it) },
-                onAppInfo = onAppInfo,
-                onToggleFavorite = onToggleFavorite,
+                actions = actions,
+                onLaunch = { drawerOpen = false; actions.launch(it) },
+                onRename = { renaming = it },
                 onClose = { drawerOpen = false },
             )
         }
     }
-}
 
-/* ---------------- ホーム ---------------- */
-
-@Composable
-private fun rememberNow(): Calendar {
-    val now by produceState(Calendar.getInstance()) {
-        while (true) {
-            value = Calendar.getInstance()
-            delay(1_000)
-        }
-    }
-    return now
-}
-
-private fun greeting(hour: Int) = when (hour) {
-    in 5..10 -> "Good morning."
-    in 11..16 -> "Good afternoon."
-    in 17..21 -> "Good evening."
-    else -> "Good night."
-}
-
-@Composable
-private fun HomePane(
-    favorites: List<AppEntry>,
-    homePressed: Int,
-    onLaunch: (AppEntry) -> Unit,
-    onLongPress: (AppEntry) -> Unit,
-    onOpenDrawer: () -> Unit,
-) {
-    val context = LocalContext.current
-    val store = remember { LayoutStore(context) }
-    var layout by remember { mutableStateOf(store.load()) }
-    var editing by remember { mutableStateOf(false) }
-    var rows by remember { mutableStateOf(12) }
-    LaunchedEffect(homePressed) { editing = false }
-    BackHandler(enabled = editing) { editing = false }
-
-    val now = rememberNow()
-    val stats = rememberSystemStats()
-    fun update(next: List<PlacedWidget>) { layout = next; store.save(next) }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .systemBarsPadding()
-            .pointerInput(editing) {
-                if (editing) return@pointerInput
-                var total = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { total = 0f },
-                    onDragEnd = { if (total < -120f) onOpenDrawer() },
-                    onVerticalDrag = { _, dy -> total += dy },
-                )
-            }
-            // 何もないところを長押しで編集モード
-            .pointerInput(Unit) { detectTapGestures(onLongPress = { editing = true }) }
-            .padding(horizontal = 24.dp, vertical = 20.dp),
-    ) {
-        if (editing) {
-            EditBar(
-                onAdd = { type ->
-                    val spot = layout.findSpot(type, rows)
-                    if (spot != null) update(layout + spot)
-                    else Toast.makeText(context, "空きがありません", Toast.LENGTH_SHORT).show()
-                },
-                onReset = { update(DEFAULT_LAYOUT) },
-                onDone = { editing = false },
-            )
-        }
-        HomeGrid(
-            layout = layout,
-            editing = editing,
-            onChange = ::update,
-            onRows = { rows = it },
-            modifier = Modifier.weight(1f),
-        ) { w ->
-            val m = Modifier.fillMaxSize()
-            when (w.type) {
-                WidgetType.CLOCK -> Box(
-                    m.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                        runCatching {
-                            context.startActivity(
-                                Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        }
-                    }
-                ) { ClockFace(ClockStyle.entries[w.style % ClockStyle.entries.size], now, m) }
-
-                WidgetType.GREETING -> Column(m) {
-                    Text(greeting(now.get(Calendar.HOUR_OF_DAY)), color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Light)
-                    Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(5.dp).background(Accent, CircleShape))
-                        Spacer(Modifier.width(6.dp))
-                        Label("${favorites.size} pinned · ${stats.battery}% battery")
-                    }
-                }
-
-                WidgetType.BATTERY -> DialCard(stats.battery.toString(), "bat", stats.battery, m, accent = true)
-                WidgetType.DATE -> DateCard(now, m)
-                WidgetType.STORAGE -> DialCard(stats.storagePct.toString(), "disk", stats.storagePct, m)
-                WidgetType.STATS -> StatsCard(stats, m)
-                WidgetType.FAVORITES -> Column(m.clipToBounds(), verticalArrangement = Arrangement.Bottom) {
-                    if (favorites.isEmpty()) Label("swipe up · hold an app to pin it here")
-                    favorites.forEach { FavoriteRow(it, onLaunch, onLongPress) }
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Label(
-            if (editing) "drag move · ○ resize · tap clock"
-            else "↑ apps  ·  hold empty space to edit",
-            modifier = Modifier.align(Alignment.CenterHorizontally).clickable(enabled = !editing) { onOpenDrawer() },
+    renaming?.let { app ->
+        RenameDialog(
+            app = app,
+            current = data.labelOf(app),
+            onSave = { actions.rename(app, it); renaming = null },
+            onDismiss = { renaming = null },
         )
     }
 }
 
+/* ---------------- 共通部品 ---------------- */
+
+/** 白黒アイコンを非同期で読み込む。読み込み済みなら即座に返す。 */
 @Composable
-private fun EditBar(onAdd: (WidgetType) -> Unit, onReset: () -> Unit, onDone: () -> Unit) {
-    var menu by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().padding(bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+fun rememberIcon(repo: AppRepository, app: AppEntry): ImageBitmap? {
+    val icon by produceState(repo.cachedIcon(app), app.key) {
+        if (value == null) value = withContext(Dispatchers.IO) { repo.loadIcon(app) }
+    }
+    return icon
+}
+
+@Composable
+fun AppIcon(repo: AppRepository, app: AppEntry, size: Dp) {
+    Box(
+        Modifier.size(size).background(Color(0xFF222222), CircleShape),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(6.dp).background(Accent, CircleShape))
-        Spacer(Modifier.width(8.dp))
-        Label("edit home", color = Fg)
-        Spacer(Modifier.weight(1f))
-        Chip("reset", onClick = onReset)
-        Spacer(Modifier.width(6.dp))
-        Box {
-            Chip("+ add") { menu = true }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                WidgetType.entries.forEach { t ->
-                    DropdownMenuItem(text = { Text(t.title) }, onClick = { menu = false; onAdd(t) })
-                }
-            }
+        rememberIcon(repo, app)?.let {
+            Image(it, contentDescription = app.label, modifier = Modifier.size(size * 0.65f))
         }
-        Spacer(Modifier.width(6.dp))
-        Chip("done", filled = true, onClick = onDone)
+    }
+}
+
+/** 長押しで出すメニュー。項目は (表示文字, 処理) の組。 */
+@Composable
+fun AppMenu(expanded: Boolean, onDismiss: () -> Unit, items: List<Pair<String, () -> Unit>>) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        items.forEach { (label, action) ->
+            DropdownMenuItem(text = { Text(label) }, onClick = { onDismiss(); action() })
+        }
     }
 }
 
 @Composable
-private fun Chip(text: String, filled: Boolean = false, onClick: () -> Unit) {
-    Text(
-        text.uppercase(Locale.ROOT),
-        color = if (filled) Color.Black else Fg,
-        fontFamily = Mono, fontSize = 10.sp, letterSpacing = 1.sp,
-        modifier = Modifier
-            .background(if (filled) Fg else Card, RoundedCornerShape(50))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+private fun RenameDialog(app: AppEntry, current: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("表示名") },
+        text = {
+            Column {
+                Text("元の名前：${app.label}", fontSize = 12.sp, color = Dim)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(text) }) { Text("保存") } },
+        dismissButton = { TextButton(onClick = { onSave("") }) { Text("元に戻す") } },
     )
-}
-
-/** 押している間だけ赤い点が付き、文字が明るくなる行。 */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun FavoriteRow(
-    app: AppEntry,
-    onLaunch: (AppEntry) -> Unit,
-    onLongPress: (AppEntry) -> Unit,
-) {
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                interactionSource = source,
-                indication = null,
-                onLongClick = { onLongPress(app) },
-                onClick = { onLaunch(app) },
-            )
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(7.dp).background(if (pressed) Accent else Color.Transparent, CircleShape))
-        Spacer(Modifier.width(10.dp))
-        Text(
-            app.label.uppercase(Locale.getDefault()),
-            color = if (pressed) Fg else Fg.copy(alpha = 0.55f),
-            fontFamily = Mono,
-            fontSize = if (pressed) 24.sp else 19.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
 }
 
 /* ---------------- アプリ一覧 ---------------- */
 
 @Composable
 private fun AppDrawer(
-    apps: List<AppEntry>,
-    favoriteKeys: List<String>,
+    data: LauncherData,
     repo: AppRepository,
+    actions: LauncherActions,
     onLaunch: (AppEntry) -> Unit,
-    onAppInfo: (AppEntry) -> Unit,
-    onToggleFavorite: (AppEntry) -> Unit,
+    onRename: (AppEntry) -> Unit,
     onClose: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val filtered = remember(apps, query) {
+    val filtered = remember(data.apps, data.labels, query) {
         val q = query.trim()
-        if (q.isEmpty()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
+        if (q.isEmpty()) data.apps
+        else data.apps.filter {
+            data.labelOf(it).contains(q, ignoreCase = true) || it.label.contains(q, ignoreCase = true)
+        }
     }
     LaunchedEffect(Unit) { focus.requestFocus() }
 
@@ -422,24 +283,24 @@ private fun AppDrawer(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
                 state = gridState,
-                modifier = Modifier
-                    .weight(1f)
-                    .nestedScroll(closeOnPull),
+                modifier = Modifier.weight(1f).nestedScroll(closeOnPull),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(filtered, key = { it.key }) { app ->
                     AppCell(
                         app = app,
-                        isFavorite = app.key in favoriteKeys,
+                        label = data.labelOf(app),
+                        isFavorite = app.key in data.favoriteKeys,
+                        inDock = app.key in data.dock,
                         repo = repo,
+                        actions = actions,
                         onLaunch = onLaunch,
-                        onAppInfo = onAppInfo,
-                        onToggleFavorite = onToggleFavorite,
+                        onRename = onRename,
                     )
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Label("tap open · hold pin · ↓ close", Modifier.align(Alignment.CenterHorizontally))
+            Label("tap open · hold menu · ↓ close", Modifier.align(Alignment.CenterHorizontally))
         }
     }
 }
@@ -448,16 +309,15 @@ private fun AppDrawer(
 @Composable
 private fun AppCell(
     app: AppEntry,
+    label: String,
     isFavorite: Boolean,
+    inDock: Boolean,
     repo: AppRepository,
+    actions: LauncherActions,
     onLaunch: (AppEntry) -> Unit,
-    onAppInfo: (AppEntry) -> Unit,
-    onToggleFavorite: (AppEntry) -> Unit,
+    onRename: (AppEntry) -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    val icon by produceState<ImageBitmap?>(repo.cachedIcon(app), app.key) {
-        if (value == null) value = withContext(Dispatchers.IO) { repo.loadIcon(app) }
-    }
     Box {
         Column(
             Modifier
@@ -466,33 +326,26 @@ private fun AppCell(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(contentAlignment = Alignment.TopEnd) {
-                Box(
-                    Modifier.size(52.dp).background(Color(0xFF222222), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    icon?.let {
-                        Image(it, contentDescription = app.label, modifier = Modifier.size(34.dp))
-                    }
-                }
-                if (isFavorite) Box(Modifier.size(8.dp).background(Accent, CircleShape))
+                AppIcon(repo, app, 52.dp)
+                if (isFavorite || inDock) Box(Modifier.size(8.dp).background(Accent, CircleShape))
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                app.label,
+                label,
                 color = Fg.copy(alpha = 0.7f), fontFamily = Mono, fontSize = 9.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 2.dp),
             )
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(
-                text = { Text(if (isFavorite) "ホームから外す" else "ホームに追加") },
-                onClick = { menu = false; onToggleFavorite(app) },
-            )
-            DropdownMenuItem(
-                text = { Text("アプリ情報") },
-                onClick = { menu = false; onAppInfo(app) },
-            )
-        }
+        AppMenu(
+            expanded = menu,
+            onDismiss = { menu = false },
+            items = listOf(
+                (if (isFavorite) "ホームから外す" else "ホームに追加") to { actions.toggleFavorite(app) },
+                (if (inDock) "ドックから外す" else "ドックに追加") to { actions.toggleDock(app) },
+                "表示名を変更" to { onRename(app) },
+                "アプリ情報" to { actions.appInfo(app) },
+            ),
+        )
     }
 }

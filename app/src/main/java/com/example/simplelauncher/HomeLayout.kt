@@ -50,6 +50,7 @@ fun List<PlacedWidget>.findSpot(type: WidgetType, rows: Int): PlacedWidget? {
     return null
 }
 
+/** 最初のページの配置。縦 11 マスに収まるようにしている。 */
 val DEFAULT_LAYOUT = listOf(
     PlacedWidget(1, WidgetType.CLOCK, 0, 0, 6, 3),
     PlacedWidget(2, WidgetType.GREETING, 0, 3, 6, 1),
@@ -57,29 +58,132 @@ val DEFAULT_LAYOUT = listOf(
     PlacedWidget(4, WidgetType.DATE, 2, 4, 2, 2),
     PlacedWidget(5, WidgetType.STORAGE, 4, 4, 2, 2),
     PlacedWidget(6, WidgetType.STATS, 0, 6, 6, 2),
-    PlacedWidget(7, WidgetType.FAVORITES, 0, 8, 6, 4),
+    PlacedWidget(7, WidgetType.FAVORITES, 0, 8, 6, 3),
 )
 
-class LayoutStore(context: Context) {
+/** 形の決まったページ。選ぶと配置が固定され、時計の見た目だけ変えられる。 */
+enum class PageTemplate(val title: String, val widgets: List<PlacedWidget>) {
+    CLOCK(
+        "Clock",
+        listOf(
+            PlacedWidget(101, WidgetType.CLOCK, 0, 0, 6, 5),
+            PlacedWidget(102, WidgetType.GREETING, 0, 5, 6, 1),
+            PlacedWidget(103, WidgetType.DATE, 0, 7, 2, 2),
+            PlacedWidget(104, WidgetType.BATTERY, 2, 7, 2, 2),
+            PlacedWidget(105, WidgetType.STORAGE, 4, 7, 2, 2),
+        ),
+    ),
+    FOCUS(
+        "Focus",
+        listOf(
+            PlacedWidget(201, WidgetType.CLOCK, 0, 0, 6, 3, style = ClockStyle.STACK.ordinal),
+            PlacedWidget(202, WidgetType.FAVORITES, 0, 4, 6, 7),
+        ),
+    ),
+    STATUS(
+        "Status",
+        listOf(
+            PlacedWidget(301, WidgetType.CLOCK, 0, 0, 6, 3, style = ClockStyle.RING.ordinal),
+            PlacedWidget(302, WidgetType.BATTERY, 0, 4, 2, 2),
+            PlacedWidget(303, WidgetType.DATE, 2, 4, 2, 2),
+            PlacedWidget(304, WidgetType.STORAGE, 4, 4, 2, 2),
+            PlacedWidget(305, WidgetType.STATS, 0, 6, 6, 2),
+        ),
+    ),
+}
+
+/** ホームの1ページ。[template] が null なら自由配置。 */
+data class HomePage(val id: Long, val template: PageTemplate?, val widgets: List<PlacedWidget>) {
+    val locked: Boolean get() = template != null
+}
+
+val DEFAULT_PAGES = listOf(
+    HomePage(1, null, DEFAULT_LAYOUT),
+    HomePage(2, PageTemplate.FOCUS, PageTemplate.FOCUS.widgets),
+)
+
+enum class DockMode { ICON, TEXT }
+
+const val DOCK_SIZE = 5
+
+/** ホーム画面まわりの設定をまとめて保存する。 */
+class HomeStore(context: Context) {
     private val prefs = context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
 
-    fun load(): List<PlacedWidget> = runCatching {
-        val raw = prefs.getString(KEY, null) ?: return DEFAULT_LAYOUT
+    /* ---- ページ ---- */
+
+    fun loadPages(): List<HomePage> = runCatching {
+        val raw = prefs.getString(KEY_PAGES, null)
+        if (raw == null) {
+            // 旧版の 1 ページ配置があれば、それを 1 ページ目に引き継ぐ
+            val old = prefs.getString(KEY_OLD_LAYOUT, null) ?: return DEFAULT_PAGES
+            return listOf(HomePage(1, null, parseWidgets(JSONArray(old)))) + DEFAULT_PAGES.drop(1)
+        }
         val arr = JSONArray(raw)
         List(arr.length()) { i ->
             val o = arr.getJSONObject(i)
-            PlacedWidget(
+            HomePage(
                 id = o.getLong("id"),
-                type = WidgetType.valueOf(o.getString("type")),
-                x = o.getInt("x"), y = o.getInt("y"),
-                w = o.getInt("w"), h = o.getInt("h"),
-                style = o.optInt("style", 0),
+                template = o.optString("template").takeIf { it.isNotEmpty() }?.let { PageTemplate.valueOf(it) },
+                widgets = parseWidgets(o.getJSONArray("widgets")),
+            )
+        }.ifEmpty { DEFAULT_PAGES }
+    }.getOrDefault(DEFAULT_PAGES)
+
+    fun savePages(pages: List<HomePage>) {
+        val arr = JSONArray()
+        pages.forEach {
+            arr.put(
+                JSONObject()
+                    .put("id", it.id)
+                    .put("template", it.template?.name ?: "")
+                    .put("widgets", widgetsJson(it.widgets))
             )
         }
-    }.getOrDefault(DEFAULT_LAYOUT)
+        prefs.edit().putString(KEY_PAGES, arr.toString()).apply()
+    }
 
-    fun save(list: List<PlacedWidget>) {
-        val arr = JSONArray()
+    /* ---- ドック ---- */
+
+    fun loadDock(): List<String?> {
+        val raw = prefs.getString(KEY_DOCK, null)?.split("\n") ?: emptyList()
+        return List(DOCK_SIZE) { i -> raw.getOrNull(i)?.takeIf { it.isNotBlank() } }
+    }
+
+    fun saveDock(slots: List<String?>) {
+        prefs.edit().putString(KEY_DOCK, slots.joinToString("\n") { it ?: "" }).apply()
+    }
+
+    fun loadDockMode(): DockMode =
+        runCatching { DockMode.valueOf(prefs.getString(KEY_DOCK_MODE, null)!!) }.getOrDefault(DockMode.ICON)
+
+    fun saveDockMode(mode: DockMode) {
+        prefs.edit().putString(KEY_DOCK_MODE, mode.name).apply()
+    }
+
+    /* ---- 表示名 ---- */
+
+    fun loadLabels(): Map<String, String> = runCatching {
+        val o = JSONObject(prefs.getString(KEY_LABELS, "{}")!!)
+        o.keys().asSequence().associateWith { o.getString(it) }
+    }.getOrDefault(emptyMap())
+
+    fun saveLabels(labels: Map<String, String>) {
+        prefs.edit().putString(KEY_LABELS, JSONObject(labels).toString()).apply()
+    }
+
+    private fun parseWidgets(arr: JSONArray) = List(arr.length()) { i ->
+        val o = arr.getJSONObject(i)
+        PlacedWidget(
+            id = o.getLong("id"),
+            type = WidgetType.valueOf(o.getString("type")),
+            x = o.getInt("x"), y = o.getInt("y"),
+            w = o.getInt("w"), h = o.getInt("h"),
+            style = o.optInt("style", 0),
+        )
+    }
+
+    private fun widgetsJson(list: List<PlacedWidget>) = JSONArray().also { arr ->
         list.forEach {
             arr.put(
                 JSONObject()
@@ -88,8 +192,13 @@ class LayoutStore(context: Context) {
                     .put("style", it.style)
             )
         }
-        prefs.edit().putString(KEY, arr.toString()).apply()
     }
 
-    private companion object { const val KEY = "layout" }
+    private companion object {
+        const val KEY_PAGES = "pages"
+        const val KEY_OLD_LAYOUT = "layout"
+        const val KEY_DOCK = "dock"
+        const val KEY_DOCK_MODE = "dock_mode"
+        const val KEY_LABELS = "labels"
+    }
 }

@@ -45,6 +45,7 @@ import kotlin.math.roundToInt
 fun HomeGrid(
     layout: List<PlacedWidget>,
     editing: Boolean,
+    locked: Boolean,
     onChange: (List<PlacedWidget>) -> Unit,
     onRows: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -59,7 +60,7 @@ fun HomeGrid(
         if (editing) GridDots(rows, cell)
         layout.forEach { w ->
             key(w.id) {
-                WidgetFrame(w, layout, cell, cellPx, rows, editing, onChange) { content(w) }
+                WidgetFrame(w, layout, cell, cellPx, rows, editing, locked, onChange) { content(w) }
             }
         }
     }
@@ -83,9 +84,11 @@ private fun WidgetFrame(
     cellPx: Float,
     rows: Int,
     editing: Boolean,
+    locked: Boolean,
     onChange: (List<PlacedWidget>) -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val change by rememberUpdatedState(onChange)
     var drag by remember { mutableStateOf(Offset.Zero) }
     var resize by remember { mutableStateOf(Offset.Zero) }
     val current by rememberUpdatedState(w)
@@ -93,7 +96,9 @@ private fun WidgetFrame(
     val density = LocalDensity.current
 
     fun commit(c: PlacedWidget) {
-        if (others.fits(c, rows)) onChange(others.map { if (it.id == c.id) c else it })
+        // 見た目の切り替えは位置が変わらないので、はみ出し判定をしない
+        val sameBox = others.any { it.id == c.id && it.x == c.x && it.y == c.y && it.w == c.w && it.h == c.h }
+        if (sameBox || others.fits(c, rows)) change(others.map { if (it.id == c.id) c else it })
     }
 
     val width = with(density) { (w.w * cellPx + resize.x).coerceAtLeast(w.type.minW * cellPx).toDp() }
@@ -116,7 +121,8 @@ private fun WidgetFrame(
                 .matchParentSize()
                 .background(Color.Black.copy(alpha = if (moving) 0.5f else 0.25f), RoundedCornerShape(16.dp))
                 .border(1.dp, if (moving) Accent else Color.White.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                .pointerInput(w.id) {
+                .pointerInput(w.id, locked) {
+                    if (locked) return@pointerInput
                     detectDragGestures(
                         onDragEnd = {
                             commit(
@@ -151,6 +157,8 @@ private fun WidgetFrame(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
 
+        if (locked) return@Box
+
         // 削除
         Box(
             Modifier
@@ -158,7 +166,7 @@ private fun WidgetFrame(
                 .offset((-6).dp, (-6).dp)
                 .size(24.dp)
                 .background(Accent, CircleShape)
-                .clickable { onChange(others.filter { it.id != current.id }) },
+                .clickable { change(others.filter { it.id != current.id }) },
             contentAlignment = Alignment.Center,
         ) { Text("×", color = Color.White, fontSize = 14.sp) }
 
