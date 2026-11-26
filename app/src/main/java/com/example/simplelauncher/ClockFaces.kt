@@ -52,7 +52,7 @@ fun ClockFace(style: ClockStyle, now: Calendar, modifier: Modifier = Modifier) {
         val blink = now.get(Calendar.SECOND) % 2 == 1
         when (style) {
             ClockStyle.DOT -> Column {
-                DotText("${now.hh()}:${now.mm()}", pitch = minOf(w / 27, (h - 26.dp) / 7), dimColon = blink)
+                DotText("${now.hh()}:${now.mm()}", pitch = minOf(w / 25, (h - 26.dp) / 7), dimColon = blink)
                 Spacer(Modifier.height(10.dp))
                 Label(now.dateLine())
             }
