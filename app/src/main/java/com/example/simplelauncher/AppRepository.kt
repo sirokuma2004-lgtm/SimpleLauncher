@@ -7,7 +7,11 @@ import android.content.pm.LauncherApps
 import android.net.Uri
 import android.os.Process
 import android.provider.Settings
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import java.text.Collator
+import java.util.concurrent.ConcurrentHashMap
 
 data class AppEntry(
     val label: String,
@@ -36,6 +40,18 @@ class AppRepository(private val context: Context) {
             }
             .sortedWith { a, b -> collator.compare(a.label, b.label) }
     }
+
+    private val icons = ConcurrentHashMap<String, ImageBitmap>()
+
+    fun cachedIcon(app: AppEntry): ImageBitmap? = icons[app.key]
+
+    /** アイコンを読み込む。重いので IO スレッドから呼ぶこと。 */
+    fun loadIcon(app: AppEntry): ImageBitmap? = icons[app.key] ?: runCatching {
+        context.packageManager
+            .getActivityIcon(ComponentName(app.packageName, app.activityName))
+            .toBitmap(128, 128)
+            .asImageBitmap()
+    }.getOrNull()?.also { icons[app.key] = it }
 
     fun launch(app: AppEntry) {
         runCatching {

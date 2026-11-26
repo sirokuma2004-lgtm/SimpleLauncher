@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
                 apps = apps.value,
                 favoriteKeys = favorites.value,
                 homePressed = homePressed.value,
+                repo = repo,
                 onLaunch = repo::launch,
                 onAppInfo = repo::openAppInfo,
                 onToggleFavorite = ::toggleFavorite,
