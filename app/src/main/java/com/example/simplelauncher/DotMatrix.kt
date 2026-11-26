@@ -26,6 +26,9 @@ private val GLYPHS: Map<Char, List<String>> = mapOf(
     ' ' to listOf("0", "0", "0", "0", "0", "0", "0"),
 )
 
+/** コロンの2点の行位置（0〜6。小数可）。間を広げたいときはここを調整する。 */
+private val COLON_ROWS = floatArrayOf(1.5f, 4.5f)
+
 private fun glyph(c: Char) = GLYPHS[c] ?: GLYPHS.getValue(' ')
 
 /**
@@ -48,6 +51,12 @@ fun DotText(
         var x0 = 0f
         glyphs.forEach { (ch, rows) ->
             val c = if (ch == ':' && dimColon) color.copy(alpha = 0.25f) else color
+            if (ch == ':') {
+                // 行の格子に縛られず、中心から上下 1.5 行ずつ離して置く
+                COLON_ROWS.forEach { row -> drawCircle(c, r, Offset(x0 + p / 2, row * p + p / 2)) }
+                x0 += 2 * p
+                return@forEach
+            }
             rows.forEachIndexed { y, row ->
                 row.forEachIndexed { x, bit ->
                     if (bit == '1') {
