@@ -10,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,7 +31,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -104,9 +104,10 @@ fun rememberSystemStats(): SystemStats {
 
 /** 丸いメーター。外周のドットが [pct] の分だけ点灯する。 */
 @Composable
-fun DialCard(value: String, label: String, pct: Int, size: Dp, accent: Boolean = false) {
+fun DialCard(value: String, label: String, pct: Int, modifier: Modifier = Modifier, accent: Boolean = false) {
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
     Box(
-        Modifier.size(size).background(Card, CircleShape),
+        Modifier.size(minOf(maxWidth, maxHeight)).background(Card, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxSize().padding(6.dp)) {
@@ -131,15 +132,16 @@ fun DialCard(value: String, label: String, pct: Int, size: Dp, accent: Boolean =
             Label(label)
         }
     }
+    }
 }
 
 /** 日付カード。大きなドット数字と、週の位置を示すドット列。 */
 @Composable
-fun DateCard(cal: Calendar, size: Dp) {
+fun DateCard(cal: Calendar, modifier: Modifier = Modifier) {
     val month = cal.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale.ENGLISH) ?: ""
     val dow = cal.get(Calendar.DAY_OF_WEEK) // 1=日曜
     Column(
-        Modifier.size(size).background(Card, RoundedCornerShape(18.dp)).padding(12.dp),
+        modifier.background(Card, RoundedCornerShape(18.dp)).padding(12.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Label(month)
