@@ -48,6 +48,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    // 自分用なので、リリースビルド時の lint は省く（依存の取得失敗でビルドが落ちるのを避ける）
+    lint { checkReleaseBuilds = false }
 }
 
 dependencies {
